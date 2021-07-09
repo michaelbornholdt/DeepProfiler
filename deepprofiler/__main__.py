@@ -17,7 +17,6 @@ import deepprofiler.learning.training
 import deepprofiler.learning.profiling
 import deepprofiler.download.normalize_bbbc021_metadata
 
-
 # Main interaction point
 @click.group()
 @click.option("--root", prompt="Root directory for DeepProfiler experiment",
@@ -160,7 +159,7 @@ def train(context, epoch, seed):
     if context.parent.obj["config"]["prepare"]["compression"]["implement"]:
         context.parent.obj["config"]["paths"]["images"] = context.obj["config"]["paths"]["compressed_images"]
     dset = deepprofiler.dataset.image_dataset.read_dataset(context.obj["config"], mode='train')
-    deepprofiler.learning.training.learn_model(context.obj["config"], dset, epoch, seed)
+    deepprofiler.learning.training.learn_model_TFdata(context.obj["config"], dset, epoch, seed)
 
 
 # Fourth tool: Profile cells and extract features

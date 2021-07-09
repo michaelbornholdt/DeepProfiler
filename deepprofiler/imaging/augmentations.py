@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_addons
 
-tf.compat.v1.disable_v2_behavior()
+
 
 
 #################################################

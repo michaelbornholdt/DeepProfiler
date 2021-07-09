@@ -11,7 +11,7 @@ import deepprofiler.dataset.metadata
 import deepprofiler.dataset.target
 import deepprofiler.imaging.cropping
 
-tf.compat.v1.disable_v2_behavior()
+
 
 cpu_config = tf.compat.v1.ConfigProto(
     device_count = {'GPU': 0}

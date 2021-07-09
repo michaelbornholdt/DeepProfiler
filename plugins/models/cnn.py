@@ -6,7 +6,7 @@ from deepprofiler.learning.model import DeepProfilerModel
 from deepprofiler.imaging.augmentations import AugmentationLayer
 
 
-tf.compat.v1.disable_v2_behavior()
+
 
 
 ##################################################

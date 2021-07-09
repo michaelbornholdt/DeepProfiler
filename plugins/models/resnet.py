@@ -1,10 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from deepprofiler.learning.model import DeepProfilerModel
-from deepprofiler.imaging.augmentations import AugmentationLayer
-
-tf.compat.v1.disable_v2_behavior()
-
+from deepprofiler.learning.model_tfdataset import DeepProfilerModel
 
 ##################################################
 # ResNet architecture as defined in "Identity Mappings
@@ -14,17 +10,17 @@ tf.compat.v1.disable_v2_behavior()
 ##################################################
 
 
-class ModelClass(DeepProfilerModel):
-    def __init__(self, config, dset, generator, val_generator, is_training):
-        super(ModelClass, self).__init__(config, dset, generator, val_generator, is_training)
+class ModelClass_TFRecord(DeepProfilerModel):
+    def __init__(self, config, dset, is_training):
+        super(ModelClass_TFRecord, self).__init__(config, dset, is_training)
         self.feature_model, self.optimizer, self.loss = self.define_model(config, dset)
 
-    ## Define supported models
+    # Define supported models
     def get_supported_models(self):
         return {
-            50: tf.compat.v1.keras.applications.resnet_v2.ResNet50V2,
-            101: tf.compat.v1.keras.applications.resnet_v2.ResNet101V2,
-            152: tf.compat.v1.keras.applications.resnet_v2.ResNet152V2,
+            50: tf.keras.applications.resnet_v2.ResNet50V2,
+            101: tf.keras.applications.resnet_v2.ResNet101V2,
+            152: tf.keras.applications.resnet_v2.ResNet152V2,
         }
 
     ## Load a supported model
@@ -34,8 +30,6 @@ class ModelClass(DeepProfilerModel):
         num_layers = config["train"]["model"]["params"]["conv_blocks"]
         error_msg = str(num_layers) + " conv_blocks not in " + SM
         assert num_layers in supported_models.keys(), error_msg
-        if self.is_training and weights is None:
-            input_image = AugmentationLayer()(input_image)
         if pooling is not None:
             model = supported_models[num_layers](input_tensor=input_image, pooling=pooling, include_top=include_top,
                                                  weights=weights)
@@ -46,11 +40,11 @@ class ModelClass(DeepProfilerModel):
     ## Model definition
     def define_model(self, config, dset):
         # 1. Create ResNet architecture to extract features
-        loss_func = "categorical_crossentropy"
-        optimizer = tf.compat.v1.keras.optimizers.SGD(learning_rate=config["train"]["model"]["params"]["learning_rate"],
+        loss_func = tf.keras.losses.CategoricalCrossentropy(from_logits=True)
+        optimizer = tf.keras.optimizers.SGD(learning_rate=config["train"]["model"]["params"]["learning_rate"],
                                                       momentum=0.9, nesterov=True)
         if "use_pretrained_input_size" in config["profile"].keys() and self.is_training is False:
-            input_tensor = tf.compat.v1.keras.layers.Input(
+            input_tensor = tf.keras.layers.Input(
                 (config["profile"]["use_pretrained_input_size"], config["profile"]["use_pretrained_input_size"], 3),
                 name="input")
             model = self.get_model(
@@ -71,62 +65,52 @@ class ModelClass(DeepProfilerModel):
             )
             input_image = tf.compat.v1.keras.layers.Input(input_shape)
             model = self.get_model(config, input_image=input_image)
-            features = tf.compat.v1.keras.layers.GlobalAveragePooling2D(name="pool5")(model.layers[-1].output)
-
-            # 2. Create an output embedding for each target
-            class_outputs = []
-
-            i = 0
-            for t in dset.targets:
-                y = tf.compat.v1.keras.layers.Dense(t.shape[1], activation="softmax", name=t.field_name)(features)
-                class_outputs.append(y)
-                i += 1
+            features = tf.keras.layers.GlobalAveragePooling2D(name="pool5")(model.output)
+            features = tf.keras.layers.BatchNormalization()(features)
+            y = tf.keras.layers.Dense(len(set(dset.targets)))(features)
 
             # 4. Create and compile model
-            model = tf.compat.v1.keras.models.Model(inputs=input_image, outputs=class_outputs)
+            model = tf.compat.v1.keras.models.Model(inputs=input_image, outputs=y)
 
-            ## Added weight decay following tricks reported in:
-            ## https://github.com/keras-team/keras/issues/2717
+            # Added weight decay following tricks reported in:
+            # https://github.com/keras-team/keras/issues/2717
             regularizer = tf.compat.v1.keras.regularizers.l2(0.00001)
             for layer in model.layers:
                 if hasattr(layer, "kernel_regularizer"):
                     setattr(layer, "kernel_regularizer", regularizer)
 
             model = tf.compat.v1.keras.models.model_from_json(
-                model.to_json(),
-                {'AugmentationLayer': AugmentationLayer}
+                model.to_json()
             )
 
         return model, optimizer, loss_func
 
-
-    ## Support for ImageNet initialization
+    # Support for ImageNet initialization
     def copy_pretrained_weights(self):
         base_model = self.get_model(self.config, weights="imagenet")
-        lshift = int(self.is_training) # Shift one layer to accommodate the AugmentationLayer
 
         # => Transfer all weights except conv1.1
         total_layers = len(base_model.layers)
-        for i in range(3,total_layers):
+        for i in range(3, total_layers):
             if len(base_model.layers[i].weights) > 0:
                 print("Setting pre-trained weights: {:.2f}%".format((i/total_layers)*100), end="\r")
-                self.feature_model.layers[i + lshift].set_weights(base_model.layers[i].get_weights())
+                self.feature_model.layers[i].set_weights(base_model.layers[i].get_weights())
         
         # => Replicate filters of first layer as needed
         weights = base_model.layers[2].get_weights()
         available_channels = weights[0].shape[2]
-        target_shape = self.feature_model.layers[2 + lshift].weights[0].shape
+        target_shape = self.feature_model.layers[2].weights[0].shape
         new_weights = np.zeros(target_shape)
 
         for i in range(new_weights.shape[2]):
             j = i % available_channels
-            new_weights[:,:,i,:] = weights[0][:,:,j,:]
+            new_weights[:, :, i, :] = weights[0][:, :, j, :]
 
         weights_array = [new_weights]
         if len(weights) > 1: 
             weights_array += weights[1:]
 
-        self.feature_model.layers[2 + lshift].set_weights(weights_array)
+        self.feature_model.layers[2].set_weights(weights_array)
         print("Network initialized with pretrained ImageNet weights")
 
 

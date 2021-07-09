@@ -4,7 +4,7 @@ import tensorflow as tf
 
 from deepprofiler.learning.model import DeepProfilerModel
 
-tf.compat.v1.disable_v2_behavior()
+
 
 ##################################################
 # Convolutional autoencoder with alternating

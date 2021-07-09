@@ -12,6 +12,7 @@ import deepprofiler.imaging.cropping
 import deepprofiler.learning.validation
 
 
+#
 
 ##################################################
 # This class should be used as an abstract base
@@ -21,14 +22,12 @@ import deepprofiler.learning.validation
 
 class DeepProfilerModel(abc.ABC):
 
-    def __init__(self, config, dset, crop_generator, val_crop_generator, is_training):
+    def __init__(self, config, dset, is_training):
         self.feature_model = None
         self.loss = None
         self.optimizer = None
         self.config = config
         self.dset = dset
-        self.train_crop_generator = crop_generator(config, dset)
-        self.val_crop_generator = val_crop_generator(config, dset)
         self.random_seed = None
         self.is_training = is_training
 
@@ -46,19 +45,10 @@ class DeepProfilerModel(abc.ABC):
         self.feature_model.summary()
 
         # Compile model
-        self.feature_model.compile(self.optimizer, self.loss, metrics)
+        self.feature_model.compile(self.optimizer, self.loss, metrics, run_eagerly=True)
 
         # Create comet ml experiment
         experiment = setup_comet_ml(self)
-
-        # Create main session
-        main_session = start_main_session()
-
-        # Start val crop generator
-        x_validation, y_validation = load_validation_data(self, main_session)
-
-        # Start train crop generator
-        self.train_crop_generator.start(main_session)
 
         # Get training parameters
         epochs, steps, schedule_epochs, schedule_lr, freq = setup_params(self, experiment)
@@ -69,25 +59,42 @@ class DeepProfilerModel(abc.ABC):
         # Create callbacks
         callbacks = setup_callbacks(self, schedule_epochs, schedule_lr, self.dset, experiment)
 
+        def decode_image(image):
+            image = tf.image.decode_png(image, channels=5)
+            image = tf.cast(image, tf.float32)
+            image = tf.reshape(image, [*self.config['dataset']['locations']['box_size'], 5])
+            return image
 
+
+        def read_tfrecord(example):
+            tfrecord_format = (
+                {
+                    "target": tf.io.FixedLenFeature([], tf.int64),
+                    "image": tf.io.FixedLenFeature([], tf.string),
+                    "target": tf.io.FixedLenFeature([], tf.int64),
+                }
+            )
+            example = tf.io.parse_single_example(example, tfrecord_format)
+            image = decode_image(example["image"])
+            label = tf.cast(example["target"], tf.int32)
+            return image, label
 
         # Train model
-        self.feature_model.fit_generator(
-            generator=self.train_crop_generator.generate(main_session),
-            steps_per_epoch=steps,
+        dataset = tf.data.TFRecordDataset('/media/arkkienkeli/Data/dp/test_setup/outputs/tfrecord/sampled_single_cells.tfrecord')
+        dataset = dataset.map(
+            read_tfrecord
+        )
+        self.feature_model.fit(
+            dataset,
             epochs=epochs,
             callbacks=callbacks,
             verbose=verbose,
             initial_epoch=epoch - 1,
-            validation_data=(x_validation, y_validation),
+            validation_data=dataset,
             validation_freq=freq
-        ) 
-            
-        # Stop threads and close sessions
-        close(self, main_session)
-
+        )
         # Return the feature model and validation data
-        return self.feature_model, x_validation, y_validation
+        return self.feature_model
 
     def copy_pretrained_weights(self):
         # Override this method if the model can load pretrained weights
@@ -151,9 +158,11 @@ def setup_callbacks(dpmodel, lr_schedule_epochs, lr_schedule_lr, dset, experimen
     output_file = dpmodel.config["paths"]["checkpoints"] + "/checkpoint_{epoch:04d}.hdf5"
     period = 1
     save_best = False
-    if "checkpoint_policy" in dpmodel.config["train"]["model"] and isinstance(dpmodel.config["train"]["model"]["checkpoint_policy"], int):
+    if "checkpoint_policy" in dpmodel.config["train"]["model"] and isinstance(
+            dpmodel.config["train"]["model"]["checkpoint_policy"], int):
         period = int(dpmodel.config["train"]["model"]["checkpoint_policy"])
-    elif "checkpoint_policy" in dpmodel.config["train"]["model"] and dpmodel.config["train"]["model"]["checkpoint_policy"] == 'best':
+    elif "checkpoint_policy" in dpmodel.config["train"]["model"] and dpmodel.config["train"]["model"][
+        "checkpoint_policy"] == 'best':
         save_best = True
 
     callback_model_checkpoint = tf.compat.v1.keras.callbacks.ModelCheckpoint(
@@ -162,7 +171,7 @@ def setup_callbacks(dpmodel, lr_schedule_epochs, lr_schedule_lr, dset, experimen
         save_best_only=save_best,
         period=period
     )
-    
+
     # CSV Log
     csv_output = dpmodel.config["paths"]["logs"] + "/log.csv"
     callback_csv = tf.compat.v1.keras.callbacks.CSVLogger(filename=csv_output)
@@ -202,7 +211,7 @@ def setup_params(dpmodel, experiment):
             lr_schedule_epochs = [x for x in range(epochs)]
             init_lr = dpmodel.config["train"]["model"]["params"]["learning_rate"]
             # Linear warm up
-            lr_schedule_lr = [init_lr/(5-t) for t in range(5)]
+            lr_schedule_lr = [init_lr / (5 - t) for t in range(5)]
             # Cosine decay
             lr_schedule_lr += [0.5 * (1 + np.cos((np.pi * t) / epochs)) * init_lr for t in range(5, epochs)]
         else:
@@ -221,12 +230,4 @@ def setup_params(dpmodel, experiment):
         freq = 1
 
     return epochs, steps, lr_schedule_epochs, lr_schedule_lr, freq
-
-
-def close(dpmodel, crop_session):
-    print("Complete! Closing session.", end=" ", flush=True)
-    dpmodel.train_crop_generator.stop(crop_session)
-    crop_session.close()
-    print("All set.")
-    gc.collect()
 

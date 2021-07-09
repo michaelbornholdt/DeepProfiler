@@ -2,7 +2,7 @@ import tensorflow as tf
 
 from plugins.models import resnet
 
-tf.compat.v1.disable_v2_behavior()
+
 
 ##################################################
 # DenseNet architecture as in "Densely Connected 

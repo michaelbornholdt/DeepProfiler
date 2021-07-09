@@ -11,7 +11,7 @@ import deepprofiler.dataset.target
 import deepprofiler.imaging.cropping
 import plugins.crop_generators.autoencoder_crop_generator
 
-tf.compat.v1.disable_v2_behavior()
+
 
 
 def test_autoencoder_crop_generator():

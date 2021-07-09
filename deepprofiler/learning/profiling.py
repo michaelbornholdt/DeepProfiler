@@ -7,7 +7,8 @@ from keras import backend as K
 
 from deepprofiler.dataset.utils import tic, toc
 
-tf.compat.v1.disable_v2_behavior()
+from deepprofiler.dataset.image_dataset import make_cropped_dataset
+
 
 
 class Profile(object):
@@ -77,6 +78,7 @@ class Profile(object):
                                    meta,
                                    False
                             )
+
         total_crops = len(crop_locations)
         if total_crops == 0:
             print("No cells to profile:", output_file)
@@ -94,14 +96,39 @@ class Profile(object):
         while len(feats.shape) > 2:  # 2D mean spatial pooling
             feats = np.mean(feats, axis=1)
 
-        key_values = {k:meta[k] for k in meta.keys()}
+        key_values = {k: meta[k] for k in meta.keys()}
         key_values["Metadata_Model"] = self.config["train"]["model"]["name"]
         np.savez_compressed(output_file, features=feats, metadata=key_values, locations=crop_locations)
         toc(image_key + " (" + str(total_crops) + " cells)", start)
 
-        
+    def extract_features_tfds(self, dataset, key, image_array, meta):
+        start = tic()
+        output_file = self.config["paths"]["features"] + "/{}/{}_{}.npz"
+        output_file = output_file.format(meta["Metadata_Plate"], meta["Metadata_Well"], meta["Metadata_Site"])
+        os.makedirs(self.config["paths"]["features"] + "/{}".format(meta["Metadata_Plate"]), exist_ok=True)
+        batch_size = self.config["profile"]["batch_size"]
+
+
+        repeats = self.config["train"]["model"]["crop_generator"] == "repeat_channel_crop_generator"
+        feats = self.feat_extractor.predict(dataset, batch_size=batch_size)
+        if repeats:
+            feats = np.reshape(feats, (self.num_channels, total_crops, -1))
+            feats = np.concatenate(feats, axis=-1)
+
+        while len(feats.shape) > 2:  # 2D mean spatial pooling
+            feats = np.mean(feats, axis=1)
+
+        key_values = {k: meta[k] for k in meta.keys()}
+        key_values["Metadata_Model"] = self.config["train"]["model"]["name"]
+        np.savez_compressed(output_file, features=feats, metadata=key_values, locations=crop_locations)
+        toc(image_key + " (" + str(total_crops) + " cells)", start)
+
+
+
 def profile(config, dset):
     profile = Profile(config, dset)
     profile.configure()
-    dset.scan(profile.extract_features, frame="all", check=profile.check)
+    #dset.scan(profile.extract_features, frame="all", check=profile.check)
+    dataset = make_cropped_dataset(config["train"]["model"]["params"]["batch_size"], 'all', dset.meta, config)
+
     print("Profiling: done")

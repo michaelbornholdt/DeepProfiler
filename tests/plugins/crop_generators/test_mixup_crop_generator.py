@@ -12,7 +12,7 @@ import deepprofiler.dataset.image_dataset
 import deepprofiler.dataset.metadata
 import deepprofiler.dataset.target
 
-tf.compat.v1.disable_v2_behavior()
+
 
 
 @pytest.fixture(scope="function")

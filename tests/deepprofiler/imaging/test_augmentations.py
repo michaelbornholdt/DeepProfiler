@@ -3,7 +3,7 @@ import tensorflow as tf
 
 import deepprofiler.imaging.augmentations
 
-tf.compat.v1.disable_v2_behavior()
+
 
 config = tf.compat.v1.ConfigProto(
     device_count = {'GPU': 0}

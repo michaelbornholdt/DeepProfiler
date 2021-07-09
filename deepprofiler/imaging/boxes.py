@@ -22,7 +22,7 @@ def get_locations(image_key, config, random_sample=None, seed=None):
 # Get single cell locations from the CSV files
 #################################################
 
-def get_single_cell_locations(image_key, config, random_sample=None, seed=None):
+def get_single_cell_locations(image_key, locations_path, random_sample=None, seed=None):
     # CSV files are expected to be stored in this format: plate/well-site-Nuclei.csv
     keys = image_key.split("/")
     locations_file = "{}/{}-{}.csv".format(
@@ -30,14 +30,24 @@ def get_single_cell_locations(image_key, config, random_sample=None, seed=None):
         keys[1],
         "Nuclei"
     )
+    print(image_key, locations_path)
     # Identify the location of the file
-    locations_path = os.path.join(config["paths"]["locations"], locations_file)
+    #locations_path = os.path.join(config["paths"]["locations"], locations_file)
+    locations_path = os.path.join(locations_path, locations_file)
     if os.path.exists(locations_path):
         # If the file exists sample a few cells or return all of them
         locations = pd.read_csv(locations_path)
+
         if random_sample is not None and random_sample < len(locations):
-            return locations.sample(random_sample, random_state=seed)
+            locations.sample(random_sample, random_state=seed)
+            locations.values.astype(float).tolist()
+            for i in range(len(locations)):
+                locations[i] = [locations[i][0] - 48, locations[i][1] - 48, locations[i][0] + 48, locations[i][1] + 48]
+            return locations
         else:
+            locations.values.astype(float).tolist()
+            for i in range(len(locations)):
+                locations[i] = [locations[i][0] - 48, locations[i][1] - 48, locations[i][0] + 48, locations[i][1] + 48]
             return locations
     else:
         # If the file does not exist return an empty dataframe
