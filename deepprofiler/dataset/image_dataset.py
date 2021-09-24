@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import os
 
 import deepprofiler.dataset.pixels
 import deepprofiler.dataset.utils
@@ -96,7 +97,8 @@ class ImageDataset():
         # Percent of all cells that will be loaded in memory at a given moment in the queue
         self.cache_coverage = 100*(cache_size / self.cells_per_epoch)
         # Number of gradient updates required to approximately use all cells in an epoch
-        self.steps_per_epoch = int(self.cells_per_epoch / batch_size)
+        print(self.root)
+        self.steps_per_epoch = int((len(os.listdir(self.root)) - 1) / batch_size)
 
         self.data_rotation = 0
         self.cache_records = 0
